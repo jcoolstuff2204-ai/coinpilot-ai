@@ -384,13 +384,8 @@ if "agent_messages" not in st.session_state:
         }
     ]
 
-import base64
-from pathlib import Path
 
-def image_data_uri(image_path):
-    image_path = Path(image_path)
-    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
-    return f"data:image/png;base64,{encoded}"
+logo_uri = image_data_uri("/Users/quanbaoho/Desktop/coinpilot_ai/assets/coinpilot_icon.png")
 
 st.markdown(
     f"""
