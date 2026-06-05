@@ -385,7 +385,12 @@ if "agent_messages" not in st.session_state:
     ]
 
 
-logo_uri = image_data_uri("/Users/quanbaoho/Desktop/coinpilot_ai/assets/coinpilot_icon.png")
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent
+LOGO_PATH = BASE_DIR / "assets" / "coinpilot_icon.png"
+
+logo_uri = image_data_uri(LOGO_PATH)
 
 st.markdown(
     f"""
