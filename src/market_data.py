@@ -1,8 +1,20 @@
 """Public market data client.
 
-CoinPilot uses CoinGecko public endpoints only. There is no exchange account,
-API secret, or order execution in this module.
+CoinPilot reads public market data only. This module has no exchange account,
+API secret, or order execution logic.
+
+Provider strategy:
+- Binance.US candles first for major USD/USDT pairs because it is efficient for indicators.
+- CoinGecko for broad market discovery and fallback.
+- Local JSON cache to reduce repeated API calls and avoid rate limits.
 """
+
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -21,15 +33,111 @@ COIN_ALIASES = {
     "dot": "polkadot",
     "link": "chainlink",
     "matic": "polygon",
+    "pol": "polygon-ecosystem-token",
     "pepe": "pepe",
     "shib": "shiba-inu",
     "xrp": "ripple",
+    "ada": "cardano",
+    "ltc": "litecoin",
+    "bch": "bitcoin-cash",
+    "xlm": "stellar",
+    "uni": "uniswap",
+    "near": "near",
+    "apt": "aptos",
+    "arb": "arbitrum",
+    "op": "optimism",
+    "atom": "cosmos",
+    "fil": "filecoin",
+    "etc": "ethereum-classic",
 }
+
+BINANCE_SYMBOLS = {
+    "bitcoin": "BTCUSDT",
+    "ethereum": "ETHUSDT",
+    "solana": "SOLUSDT",
+    "avalanche-2": "AVAXUSDT",
+    "binancecoin": "BNBUSDT",
+    "dogecoin": "DOGEUSDT",
+    "polkadot": "DOTUSDT",
+    "chainlink": "LINKUSDT",
+    "ripple": "XRPUSDT",
+    "cardano": "ADAUSDT",
+    "litecoin": "LTCUSDT",
+    "bitcoin-cash": "BCHUSDT",
+    "stellar": "XLMUSDT",
+    "uniswap": "UNIUSDT",
+    "near": "NEARUSDT",
+    "aptos": "APTUSDT",
+    "arbitrum": "ARBUSDT",
+    "optimism": "OPUSDT",
+    "cosmos": "ATOMUSDT",
+    "filecoin": "FILUSDT",
+    "ethereum-classic": "ETCUSDT",
+}
+
+SEARCH_CACHE_SECONDS = 60 * 60
+UNIVERSE_CACHE_SECONDS = 45 * 60
+MARKET_CACHE_SECONDS = 10 * 60
+STALE_MARKET_SECONDS = 6 * 60 * 60
 
 
 def normalize_coin_id(coin_id: str) -> str:
     cleaned = coin_id.strip().lower()
     return COIN_ALIASES.get(cleaned, cleaned)
+
+
+def cache_file(namespace: str, key: str) -> Path:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return settings.cache_path / namespace / f"{digest}.json"
+
+
+def read_cache(namespace: str, key: str, max_age_seconds: int) -> dict | list | None:
+    path = cache_file(namespace, key)
+    if not path.exists():
+        return None
+    try:
+        wrapper = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if time.time() - wrapper.get("saved_at", 0) > max_age_seconds:
+        return None
+    return wrapper.get("payload")
+
+
+def read_stale_cache(namespace: str, key: str, max_age_seconds: int) -> dict | list | None:
+    return read_cache(namespace, key, max_age_seconds)
+
+
+def write_cache(namespace: str, key: str, payload: dict | list) -> None:
+    path = cache_file(namespace, key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"saved_at": time.time(), "payload": payload}))
+
+
+def get_json(url: str, params: dict, timeout: int, namespace: str, ttl: int, stale_ttl: int | None = None):
+    key = json.dumps({"url": url, "params": params}, sort_keys=True)
+    cached = read_cache(namespace, key, ttl)
+    if cached is not None:
+        return cached
+
+    try:
+        response = requests.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+        write_cache(namespace, key, payload)
+        return payload
+    except HTTPError as error:
+        if error.response is not None and error.response.status_code == 429 and stale_ttl:
+            stale = read_stale_cache(namespace, key, stale_ttl)
+            if stale is not None:
+                return stale
+        raise
+    except RequestException:
+        if stale_ttl:
+            stale = read_stale_cache(namespace, key, stale_ttl)
+            if stale is not None:
+                return stale
+        raise
 
 
 def search_coins(query: str, limit: int = 8) -> list[dict]:
@@ -38,17 +146,17 @@ def search_coins(query: str, limit: int = 8) -> list[dict]:
         return []
 
     url = f"{settings.coingecko_base_url}/search"
+    params = {"query": cleaned}
     try:
-        response = requests.get(url, params={"query": cleaned}, timeout=15)
-        response.raise_for_status()
+        payload = get_json(url, params, 15, "coingecko_search", SEARCH_CACHE_SECONDS, SEARCH_CACHE_SECONDS * 24)
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
-            raise RuntimeError("CoinGecko rate limit reached. Please wait a minute and try again.") from error
+            raise RuntimeError("CoinGecko search rate limit reached. Please wait a minute and try again.") from error
         raise RuntimeError("CoinGecko search returned an error. Please try again shortly.") from error
     except RequestException as error:
         raise RuntimeError("Could not connect to CoinGecko search. Check your internet connection and try again.") from error
 
-    coins = response.json().get("coins", [])
+    coins = payload.get("coins", [])
     return [
         {
             "id": coin.get("id", ""),
@@ -88,29 +196,23 @@ def resolve_coin_id(query: str) -> str:
 
 def fetch_market_universe(limit: int = 50, currency: str = "usd") -> list[dict]:
     url = f"{settings.coingecko_base_url}/coins/markets"
-    per_page = max(1, min(limit, 250))
+    params = {
+        "vs_currency": currency,
+        "order": "market_cap_desc",
+        "per_page": max(1, min(limit, 250)),
+        "page": 1,
+        "sparkline": "false",
+        "price_change_percentage": "24h,7d",
+    }
     try:
-        response = requests.get(
-            url,
-            params={
-                "vs_currency": currency,
-                "order": "market_cap_desc",
-                "per_page": per_page,
-                "page": 1,
-                "sparkline": "false",
-                "price_change_percentage": "24h,7d",
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
+        markets = get_json(url, params, 20, "market_universe", UNIVERSE_CACHE_SECONDS, UNIVERSE_CACHE_SECONDS * 24)
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
-            raise RuntimeError("CoinGecko rate limit reached. Please wait a minute and try again.") from error
+            raise RuntimeError("CoinGecko market-list rate limit reached. Try again soon; cached data will be reused when available.") from error
         raise RuntimeError("CoinGecko could not return the market list. Please try again shortly.") from error
     except RequestException as error:
         raise RuntimeError("Could not connect to CoinGecko. Check your internet connection and try again.") from error
 
-    markets = response.json()
     if not markets:
         raise ValueError("CoinGecko returned no market list data.")
     return markets
@@ -118,14 +220,69 @@ def fetch_market_universe(limit: int = 50, currency: str = "usd") -> list[dict]:
 
 def fetch_market_data(coin_id: str, days: int = 120, currency: str = "usd") -> pd.DataFrame:
     coin = normalize_coin_id(coin_id)
-    url = f"{settings.coingecko_base_url}/coins/{coin}/market_chart"
+
+    if currency.lower() == "usd":
+        try:
+            return fetch_binance_market_data(coin, days=days)
+        except ValueError:
+            pass
+        except RuntimeError:
+            pass
+
+    return fetch_coingecko_market_data(coin, days=days, currency=currency)
+
+
+def fetch_binance_market_data(coin_id: str, days: int = 120) -> pd.DataFrame:
+    symbol = BINANCE_SYMBOLS.get(coin_id)
+    if not symbol:
+        raise ValueError(f"No Binance candle mapping for '{coin_id}'.")
+
+    url = f"{settings.binance_base_url}/klines"
+    params = {"symbol": symbol, "interval": "1d", "limit": max(60, min(days, 1000))}
     try:
-        response = requests.get(
-            url,
-            params={"vs_currency": currency, "days": days, "interval": "daily"},
-            timeout=20,
-        )
-        response.raise_for_status()
+        candles = get_json(url, params, 15, "binance_klines", MARKET_CACHE_SECONDS, STALE_MARKET_SECONDS)
+    except HTTPError as error:
+        if error.response is not None and error.response.status_code == 429:
+            raise RuntimeError("Binance market-data rate limit reached.") from error
+        raise RuntimeError("Binance could not return candle data.") from error
+    except RequestException as error:
+        raise RuntimeError("Could not connect to Binance market data.") from error
+
+    if not candles:
+        raise ValueError(f"No Binance candle data found for '{coin_id}'.")
+
+    frame = pd.DataFrame(
+        candles,
+        columns=[
+            "open_time",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "close_time",
+            "quote_volume",
+            "trade_count",
+            "taker_buy_base_volume",
+            "taker_buy_quote_volume",
+            "ignore",
+        ],
+    )
+    frame = frame[["open_time", "close", "volume"]].copy()
+    frame["timestamp"] = pd.to_datetime(frame["open_time"], unit="ms")
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce")
+    frame = frame[["timestamp", "close", "volume"]].dropna()
+    if len(frame) < 60:
+        raise ValueError("Binance returned too little history to calculate the required indicators.")
+    return frame
+
+
+def fetch_coingecko_market_data(coin_id: str, days: int = 120, currency: str = "usd") -> pd.DataFrame:
+    url = f"{settings.coingecko_base_url}/coins/{coin_id}/market_chart"
+    params = {"vs_currency": currency, "days": days, "interval": "daily"}
+    try:
+        payload = get_json(url, params, 20, "coingecko_market_chart", MARKET_CACHE_SECONDS, STALE_MARKET_SECONDS)
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
             raise RuntimeError("CoinGecko rate limit reached. Please wait a minute and try again.") from error
@@ -134,8 +291,6 @@ def fetch_market_data(coin_id: str, days: int = 120, currency: str = "usd") -> p
         raise RuntimeError("CoinGecko returned an error. Please try again shortly.") from error
     except RequestException as error:
         raise RuntimeError("Could not connect to CoinGecko. Check your internet connection and try again.") from error
-
-    payload = response.json()
 
     prices = payload.get("prices", [])
     volumes = payload.get("total_volumes", [])

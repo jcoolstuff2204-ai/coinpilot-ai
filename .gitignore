@@ -1,6 +1,1 @@
-.env
-venv/
-__pycache__/
-*.py[cod]
-.DS_Store
-data/*.db
+.env\nvenv/\n__pycache__/\n*.py[cod]\n.DS_Store\ndata/*.db\ndata/cache/\n
