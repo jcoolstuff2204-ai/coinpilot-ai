@@ -21,6 +21,8 @@ class MarketScanRequest(BaseModel):
     universe_limit: int = Field(default=50, ge=10, le=250)
     deep_scan_limit: int = Field(default=25, ge=5, le=50)
     top_n: int = Field(default=10, ge=1, le=20)
+    rank_start: int = Field(default=1, ge=1, le=2000)
+    min_volume_usd: float = Field(default=1000000.0, ge=0)
 
 
 class CoinSearchResult(BaseModel):

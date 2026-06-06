@@ -84,11 +84,13 @@ def scan_coins(request: ScanRequest) -> ScanResponse:
 
 
 def scan_market(request: MarketScanRequest) -> ScanResponse:
-    universe = fetch_market_universe(limit=request.universe_limit)
+    universe = fetch_market_universe(limit=request.universe_limit, rank_start=request.rank_start)
     candidate_ids = [
         item["id"]
         for item in universe
-        if item.get("id") not in STABLECOIN_IDS and item.get("symbol", "").lower() not in {"usdt", "usdc", "dai"}
+        if item.get("id") not in STABLECOIN_IDS
+        and item.get("symbol", "").lower() not in {"usdt", "usdc", "dai"}
+        and float(item.get("total_volume") or 0) >= request.min_volume_usd
     ][: request.deep_scan_limit]
     scan = scan_coins(
         ScanRequest(

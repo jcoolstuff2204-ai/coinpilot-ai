@@ -194,18 +194,37 @@ def resolve_coin_id(query: str) -> str:
     return ranked[0]["id"]
 
 
-def fetch_market_universe(limit: int = 50, currency: str = "usd") -> list[dict]:
+def fetch_market_universe(limit: int = 50, currency: str = "usd", rank_start: int = 1) -> list[dict]:
+    """Fetch a market-cap ranked coin segment.
+
+    rank_start lets CoinPilot scan beyond major coins:
+    - 1 = large caps
+    - 101 = mid caps
+    - 301+ = smaller, higher-risk coins
+    """
+    per_page = 250
+    rank_start = max(1, rank_start)
+    limit = max(1, min(limit, 250))
+    rank_end = rank_start + limit - 1
+    start_page = ((rank_start - 1) // per_page) + 1
+    end_page = ((rank_end - 1) // per_page) + 1
+
+    markets: list[dict] = []
     url = f"{settings.coingecko_base_url}/coins/markets"
-    params = {
-        "vs_currency": currency,
-        "order": "market_cap_desc",
-        "per_page": max(1, min(limit, 250)),
-        "page": 1,
-        "sparkline": "false",
-        "price_change_percentage": "24h,7d",
-    }
+
     try:
-        markets = get_json(url, params, 20, "market_universe", UNIVERSE_CACHE_SECONDS, UNIVERSE_CACHE_SECONDS * 24)
+        for page in range(start_page, end_page + 1):
+            params = {
+                "vs_currency": currency,
+                "order": "market_cap_desc",
+                "per_page": per_page,
+                "page": page,
+                "sparkline": "false",
+                "price_change_percentage": "24h,7d",
+            }
+            markets.extend(
+                get_json(url, params, 20, "market_universe", UNIVERSE_CACHE_SECONDS, UNIVERSE_CACHE_SECONDS * 24)
+            )
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
             raise RuntimeError("CoinGecko market-list rate limit reached. Try again soon; cached data will be reused when available.") from error
@@ -215,8 +234,13 @@ def fetch_market_universe(limit: int = 50, currency: str = "usd") -> list[dict]:
 
     if not markets:
         raise ValueError("CoinGecko returned no market list data.")
-    return markets
 
+    segment = [
+        item
+        for item in markets
+        if rank_start <= int(item.get("market_cap_rank") or 999999) <= rank_end
+    ]
+    return segment[:limit]
 
 def fetch_market_data(coin_id: str, days: int = 120, currency: str = "usd") -> pd.DataFrame:
     coin = normalize_coin_id(coin_id)

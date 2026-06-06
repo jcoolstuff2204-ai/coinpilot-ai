@@ -486,6 +486,20 @@ with st.sidebar:
         ["Market Top 10", "Custom Watchlist"],
         key="scanner_mode",
     )
+    market_segment = st.selectbox(
+        "Market segment",
+        ["Large Caps (rank 1-100)", "Mid Caps (rank 101-300)", "Small Caps (rank 301-800)", "High-Risk Small Caps (rank 801-1500)"],
+        index=1,
+        help="Smaller coins can move more, but they need enough volume to enter and exit safely.",
+        key="market_segment",
+    )
+    segment_settings = {
+        "Large Caps (rank 1-100)": {"rank_start": 1, "min_volume_usd": 50000000},
+        "Mid Caps (rank 101-300)": {"rank_start": 101, "min_volume_usd": 10000000},
+        "Small Caps (rank 301-800)": {"rank_start": 301, "min_volume_usd": 2000000},
+        "High-Risk Small Caps (rank 801-1500)": {"rank_start": 801, "min_volume_usd": 1000000},
+    }
+    selected_segment = segment_settings[market_segment]
     universe_limit = st.slider(
         "Market universe",
         min_value=10,
@@ -545,6 +559,8 @@ def run_market_scan() -> None:
                         "universe_limit": universe_limit,
                         "deep_scan_limit": deep_scan_limit,
                         "top_n": 10,
+                        "rank_start": selected_segment["rank_start"],
+                        "min_volume_usd": selected_segment["min_volume_usd"],
                     },
                     timeout=180,
                 )
@@ -647,8 +663,8 @@ if page == "Market Radar":
         <div class="scanner-hero">
             <div class="scanner-title">Market Radar</div>
             <div class="scanner-copy">
-                Find the strongest short-term coins to review right now. CoinPilot ranks opportunities,
-                rejects weak setups, and keeps every decision inside your risk limit.
+                Scan large, mid, or small-cap coins for short-term setups. CoinPilot ranks opportunities,
+                filters weak liquidity, and keeps every decision inside your risk limit.
             </div>
         </div>
         """,
