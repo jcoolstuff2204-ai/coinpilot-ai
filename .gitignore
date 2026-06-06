@@ -1,1 +1,1 @@
-.env\nvenv/\n__pycache__/\n*.py[cod]\n.DS_Store\ndata/*.db\ndata/cache/\n
+.env\nvenv/\n__pycache__/\n*.py[cod]\n.DS_Store\ndata/*.db\ndata/cache/\n\n.env\nvenv/\n__pycache__/\n*.py[cod]\n.DS_Store\ndata/*.db\ndata/cache/\n
