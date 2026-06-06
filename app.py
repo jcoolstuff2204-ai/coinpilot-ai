@@ -488,16 +488,16 @@ with st.sidebar:
     )
     market_segment = st.selectbox(
         "Market segment",
-        ["Large Caps (rank 1-100)", "Mid Caps (rank 101-300)", "Small Caps (rank 301-800)", "High-Risk Small Caps (rank 801-1500)"],
+        ["Top Volume (1-100)", "Active Altcoins (101-300)", "Small-Cap Momentum (301-800)", "High-Risk Microcaps (801-1500)"],
         index=1,
         help="Smaller coins can move more, but they need enough volume to enter and exit safely.",
         key="market_segment",
     )
     segment_settings = {
-        "Large Caps (rank 1-100)": {"rank_start": 1, "min_volume_usd": 5000000},
-        "Mid Caps (rank 101-300)": {"rank_start": 101, "min_volume_usd": 1000000},
-        "Small Caps (rank 301-800)": {"rank_start": 301, "min_volume_usd": 300000},
-        "High-Risk Small Caps (rank 801-1500)": {"rank_start": 801, "min_volume_usd": 100000},
+        "Top Volume (1-100)": {"rank_start": 1, "min_volume_usd": 5000000},
+        "Active Altcoins (101-300)": {"rank_start": 101, "min_volume_usd": 1000000},
+        "Small-Cap Momentum (301-800)": {"rank_start": 301, "min_volume_usd": 300000},
+        "High-Risk Microcaps (801-1500)": {"rank_start": 601, "min_volume_usd": 100000},
     }
     selected_segment = segment_settings[market_segment]
     universe_limit = st.slider(

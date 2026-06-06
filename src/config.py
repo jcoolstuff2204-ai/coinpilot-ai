@@ -18,6 +18,7 @@ class Settings:
     coingecko_base_url: str
     binance_base_url: str
     binance_global_base_url: str
+    kucoin_base_url: str
     openai_api_key: str
     openai_model: str
     backend_url: str
@@ -36,6 +37,7 @@ settings = Settings(
     coingecko_base_url=os.getenv("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3"),
     binance_base_url=os.getenv("BINANCE_BASE_URL", "https://api.binance.com/api/v3"),
     binance_global_base_url=os.getenv("BINANCE_GLOBAL_BASE_URL", "https://api.binance.com/api/v3"),
+    kucoin_base_url=os.getenv("KUCOIN_BASE_URL", "https://api.kucoin.com"),
     openai_api_key=os.getenv("OPENAI_API_KEY", ""),
     openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
     backend_url=os.getenv("BACKEND_URL", "http://127.0.0.1:8000"),
