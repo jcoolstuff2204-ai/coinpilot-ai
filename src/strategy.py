@@ -45,15 +45,15 @@ def psychology_profile(
         notes.append("Price is stretched above the 20-period average.")
         penalty += 10
 
-    if current_price >= resistance * 0.98:
-        notes.append("Price is close to resistance, where buyers often hesitate.")
+    if current_price >= resistance * 0.995:
+        notes.append("Price is sitting directly under resistance, where buyers often hesitate.")
         penalty += 10
 
     if rsi <= 35 and volume_vs_average >= 120:
         notes.append("Panic risk: selling pressure is elevated.")
         penalty += 15
 
-    if trend_extension < 0.01:
+    if trend_extension < 0.005:
         notes.append("Investor conviction looks mixed because the trend is not separated.")
         penalty += 10
 
@@ -86,13 +86,13 @@ def build_trade_analysis(
     resistance = float(latest["resistance"])
 
     trend_gap = abs(ma_20 - ma_50) / current_price
-    bullish_trend = current_price > ma_20 > ma_50 and trend_gap >= 0.01
-    bearish_trend = current_price < ma_20 < ma_50 and trend_gap >= 0.01
-    healthy_buy_rsi = 45 <= rsi <= 65
-    healthy_volume = volume_vs_average >= 85
-    near_resistance = current_price >= resistance * 0.985
-    weak_rsi = rsi < 40
-    overbought_rsi = rsi > 72
+    bullish_trend = current_price > ma_20 and ma_20 >= ma_50 and trend_gap >= 0.005
+    bearish_trend = current_price < ma_20 and ma_20 <= ma_50 and trend_gap >= 0.005
+    healthy_buy_rsi = 40 <= rsi <= 70
+    healthy_volume = volume_vs_average >= 70
+    near_resistance = current_price >= resistance * 0.995
+    weak_rsi = rsi < 35
+    overbought_rsi = rsi > 76
     key_levels = [
         f"Support near ${support:,.2f}",
         f"Resistance near ${resistance:,.2f}",
@@ -152,7 +152,7 @@ def build_trade_analysis(
             market_bias="Neutral",
             trend_status="Unclear",
             confidence=40,
-            reason="Trend is unclear because price, 20 MA, and 50 MA are not aligned upward.",
+            reason="No buy setup yet: trend is not clearly aligned upward enough for short-term risk.",
         )
 
     entry_price = current_price
@@ -179,7 +179,7 @@ def build_trade_analysis(
             market_bias="Bullish but extended",
             trend_status="Bullish",
             confidence=50,
-            reason="Trend is clear, but RSI is not in a beginner-friendly buy range.",
+            reason="No buy setup yet: trend is clear, but RSI is either too weak or too overheated.",
         )
 
     if not healthy_volume:
@@ -189,7 +189,7 @@ def build_trade_analysis(
             market_bias="Bullish but low volume",
             trend_status="Bullish",
             confidence=50,
-            reason="Trend is clear, but volume is below its 20-period average.",
+            reason="No buy setup yet: volume is too quiet to confirm momentum.",
         )
 
     if near_resistance:
@@ -199,10 +199,10 @@ def build_trade_analysis(
             market_bias="Bullish but near resistance",
             trend_status="Bullish",
             confidence=55,
-            reason="Price is too close to recent resistance, so the setup does not offer enough room.",
+            reason="No buy setup yet: price is sitting directly under resistance, so chasing here is risky.",
         )
 
-    if behavior_penalty >= 25:
+    if behavior_penalty >= 35:
         return AnalysisResponse(
             **no_trade_base,
             recommendation="Hold",
@@ -219,10 +219,12 @@ def build_trade_analysis(
         stop_loss=stop_loss,
     )
 
-    confidence = 75
+    confidence = 70
     if volume_change > 10:
         confidence += 5
-    if volume_vs_average > 120:
+    if 45 <= rsi <= 62:
+        confidence += 5
+    if volume_vs_average > 110:
         confidence += 5
     if current_price < resistance * 0.95:
         confidence += 5
@@ -236,8 +238,9 @@ def build_trade_analysis(
         market_bias="Bullish",
         trend_status="Bullish",
         reason=(
-            "Trend is clear, RSI is acceptable, risk/reward passes the safety rules, "
-            f"and psychology is {behavior_label.lower()}."
+            "Buy setup found: trend is aligned upward, RSI is tradable, volume is acceptable, "
+            "and risk/reward passes the safety rules. "
+            f"Investor psychology is {behavior_label.lower()}."
         ),
         confidence=min(confidence, 90),
         current_price=current_price,
