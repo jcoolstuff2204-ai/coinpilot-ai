@@ -453,8 +453,9 @@ st.warning(
     "It does not connect to an exchange, use leverage, auto-buy, or auto-sell."
 )
 
+
 with st.sidebar:
-    st.header("Risk Settings")
+    st.header("Trading Plan")
     account_size = st.number_input(
         "Account Size ($)",
         min_value=100.0,
@@ -472,7 +473,46 @@ with st.sidebar:
     )
 
     st.divider()
-    st.header("Single Coin")
+    page = st.radio(
+        "Workspace",
+        ["Market Radar", "Coin Deep Dive", "AI Coach", "Journal"],
+        key="workspace",
+    )
+
+    st.divider()
+    st.header("Market Radar")
+    scanner_mode = st.radio(
+        "Scan",
+        ["Market Top 10", "Custom Watchlist"],
+        key="scanner_mode",
+    )
+    universe_limit = st.slider(
+        "Market universe",
+        min_value=10,
+        max_value=100,
+        value=50,
+        step=10,
+        help="Top market-cap coins to consider.",
+        key="universe_limit",
+    )
+    deep_scan_limit = st.slider(
+        "Deep scan",
+        min_value=5,
+        max_value=30,
+        value=15,
+        step=5,
+        help="Coins to analyze deeply. Higher values may use more API calls.",
+        key="deep_scan_limit",
+    )
+    watchlist_text = st.text_area(
+        "Watchlist",
+        value="bitcoin, ethereum, solana, shib, avax, pepe",
+        help="Use tickers, names, or CoinGecko IDs.",
+        key="watchlist_text",
+    )
+
+    st.divider()
+    st.header("Deep Dive")
     selected_coin = st.selectbox("Coin", list(COIN_CHOICES.keys()), key="selected_coin")
     custom_coin = st.text_input(
         "Symbol, name, or CoinGecko ID",
@@ -490,97 +530,157 @@ with st.sidebar:
                 st.error(str(error))
         if st.session_state.get("coin_search"):
             top_match = st.session_state.coin_search[0]
-            st.caption(f"Top match: {top_match['name']} ({top_match['symbol'].upper()}) → {top_match['id']}")
+            st.caption(f"Top match: {top_match['name']} ({top_match['symbol'].upper()}) -> {top_match['id']}")
 
-    st.divider()
-    st.header("Scanner")
-    scanner_mode = st.radio(
-        "Scan mode",
-        ["Market Top 10", "Custom Watchlist"],
-        key="scanner_mode",
-    )
-    universe_limit = st.slider(
-        "Market universe",
-        min_value=10,
-        max_value=100,
-        value=50,
-        step=10,
-        help="CoinGecko market-cap universe to consider.",
-        key="universe_limit",
-    )
-    deep_scan_limit = st.slider(
-        "Deep scan",
-        min_value=5,
-        max_value=30,
-        value=15,
-        step=5,
-        help="Historical indicator scans. Higher values may hit CoinGecko rate limits.",
-        key="deep_scan_limit",
-    )
-    watchlist_text = st.text_area(
-        "Coins to scan",
-        value="bitcoin, ethereum, solana, shib, avax, pepe",
-        help="Use tickers, names, or CoinGecko IDs. CoinPilot will try to resolve them.",
-        key="watchlist_text",
-    )
 
-overview_tab, analyze_tab, scanner_tab, agent_tab, journal_tab = st.tabs(
-    ["Overview", "Analyze", "Scanner", "AI Agent", "Journal"]
-)
+def run_market_scan() -> None:
+    try:
+        if scanner_mode == "Market Top 10":
+            with st.spinner("Scanning the market and ranking short-term setups..."):
+                st.session_state.scan = api_post(
+                    "/scan/market",
+                    {
+                        "account_size": account_size,
+                        "risk_percent": risk_percent,
+                        "universe_limit": universe_limit,
+                        "deep_scan_limit": deep_scan_limit,
+                        "top_n": 10,
+                    },
+                    timeout=180,
+                )
+        else:
+            coin_ids = [coin.strip().lower() for coin in watchlist_text.split(",") if coin.strip()]
+            if len(coin_ids) > 30:
+                st.warning("Custom watchlist scans are capped at 30 coins. Scanning the first 30.")
+                coin_ids = coin_ids[:30]
+            with st.spinner("Scanning your watchlist..."):
+                st.session_state.scan = api_post(
+                    "/scan",
+                    {
+                        "coin_ids": coin_ids,
+                        "account_size": account_size,
+                        "risk_percent": risk_percent,
+                    },
+                    timeout=120,
+                )
+    except RuntimeError as error:
+        st.error(str(error))
 
-with overview_tab:
-    st.subheader("Your AI Copilot For Smarter Crypto Trading")
+
+def render_signal_card(title: str, value: str, caption: str) -> None:
     st.markdown(
-        """
-        <div class="feature-strip">
-            <div class="feature-card">
-                <div class="feature-icon">✓</div>
-                <div class="feature-title">Trustworthy</div>
-                <div class="feature-copy">No exchange keys. No auto-trading. Manual decisions only.</div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">▥</div>
-                <div class="feature-title">Data-Driven</div>
-                <div class="feature-copy">MA20, MA50, RSI, volume, support, and resistance.</div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">⌖</div>
-                <div class="feature-title">Guidance</div>
-                <div class="feature-copy">Buy Setup, Hold, or Sell / Avoid with reasoning.</div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">!</div>
-                <div class="feature-title">Awareness</div>
-                <div class="feature-copy">Top-10 scanner alerts for risk and opportunity.</div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">AI</div>
-                <div class="feature-title">Intelligent</div>
-                <div class="feature-copy">AI-powered explanations for clearer decisions.</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    col_1, col_2, col_3 = st.columns(3)
-    col_1.metric("Trend Engine", "MA20 / MA50")
-    col_2.metric("Momentum Lens", "RSI + Volume")
-    col_3.metric("Risk Gate", "1:2 minimum")
-
-    st.markdown(
-        """
+        f"""
         <div class="section-note">
-        Profit comes from discipline, not prediction. CoinPilot is designed to find promising setups,
-        reject weak ones, and remind you when the best action is to wait.
+            <div class="feature-title">{title}</div>
+            <h2 style="margin:0;color:#0F172A;">{value}</h2>
+            <div class="feature-copy">{caption}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with analyze_tab:
-    run_analysis = st.button("Analyze Selected Coin", type="primary", width="stretch", key="run_analysis")
-    if run_analysis:
+
+def render_scan_summary(scan: dict) -> None:
+    results = scan.get("results", [])
+    alerts = scan.get("alerts", [])
+    errors = scan.get("errors", {})
+
+    buy_count = len([item for item in results if item["recommendation"] == "Buy Setup"])
+    hold_count = len([item for item in results if item["recommendation"] == "Hold"])
+    avoid_count = len([item for item in results if item["recommendation"] == "Sell / Avoid"])
+
+    metric_1, metric_2, metric_3, metric_4 = st.columns(4)
+    metric_1.metric("Buy Setups", buy_count)
+    metric_2.metric("Watch / Hold", hold_count)
+    metric_3.metric("Sell / Avoid", avoid_count)
+    metric_4.metric("Scanned", scan.get("scanned_count", 0))
+
+    if not results:
+        st.warning("No usable market results yet. Try a smaller deep scan or run again later.")
+        return
+
+    st.subheader("Action Alerts")
+    show_alerts(alerts)
+
+    top_pick = results[0]
+    st.subheader("Best Current Candidate")
+    top_left, top_right = st.columns([0.62, 0.38])
+    with top_left:
+        st.markdown(f"### {top_pick['coin_id'].upper()}")
+        recommendation_badge(top_pick["recommendation"])
+        st.write("")
+        if top_pick["recommendation"] == "Buy Setup":
+            st.success(top_pick["explanation"])
+        elif top_pick["recommendation"] == "Sell / Avoid":
+            st.warning(top_pick["explanation"])
+        else:
+            st.info(top_pick["explanation"])
+    with top_right:
+        st.metric("Decision", top_pick["decision"])
+        st.metric("Confidence", f"{top_pick['confidence']}%")
+        st.metric("Price", f"${top_pick['current_price']:,.2f}")
+
+    if top_pick["decision"] == "Trade":
+        entry_col, stop_col, target_col, rr_col = st.columns(4)
+        entry_col.metric("Entry Zone", top_pick["entry_zone"])
+        stop_col.metric("Stop-Loss", f"${top_pick['stop_loss']:,.2f}")
+        target_col.metric("Take-Profit", f"${top_pick['take_profit']:,.2f}")
+        rr_col.metric("Risk / Reward", f"1:{top_pick['risk_reward_ratio']:.2f}")
+    else:
+        st.info(f"No trade plan shown. Reason: {top_pick['reason']}")
+
+    st.subheader("Top 10 Short-Term Watchlist")
+    st.dataframe(scan_table_rows(results), width="stretch", hide_index=True)
+
+    with st.expander("Full details for best candidate"):
+        show_analysis_details(top_pick)
+
+    if errors:
+        with st.expander("Skipped coins"):
+            for coin, error in errors.items():
+                st.write(f"- {coin}: {error}")
+
+
+if page == "Market Radar":
+    st.markdown(
+        """
+        <div class="scanner-hero">
+            <div class="scanner-title">Market Radar</div>
+            <div class="scanner-copy">
+                Find the strongest short-term coins to review right now. CoinPilot ranks opportunities,
+                rejects weak setups, and keeps every decision inside your risk limit.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    action_col, note_col = st.columns([0.7, 0.3])
+    with action_col:
+        if st.button("Scan Market Now", type="primary", width="stretch", key="scan_market_now"):
+            run_market_scan()
+    with note_col:
+        render_signal_card("Risk Mode", f"{risk_percent:.1f}%", "Max risk per trade")
+
+    if st.session_state.scan:
+        render_scan_summary(st.session_state.scan)
+    else:
+        st.info("Click Scan Market Now to generate your top 10 short-term watchlist.")
+
+elif page == "Coin Deep Dive":
+    st.markdown(
+        """
+        <div class="scanner-hero">
+            <div class="scanner-title">Coin Deep Dive</div>
+            <div class="scanner-copy">
+                Use this when you already have a coin in mind and want a focused Buy Setup, Hold,
+                or Sell / Avoid review.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Analyze Selected Coin", type="primary", width="stretch", key="run_analysis"):
         try:
             st.session_state.analysis = api_post(
                 "/analyze",
@@ -589,7 +689,7 @@ with analyze_tab:
                     "account_size": account_size,
                     "risk_percent": risk_percent,
                 },
-                timeout=30,
+                timeout=45,
             )
         except RuntimeError as error:
             st.error(str(error))
@@ -599,121 +699,28 @@ with analyze_tab:
         show_analysis_details(st.session_state.analysis)
         st.success("Saved to the local trade journal.")
     else:
-        st.info("Choose a coin in the sidebar, then run an analysis.")
+        st.info("Choose a coin in the sidebar, then run a deep dive.")
 
-with scanner_tab:
-    st.markdown(
-        """
-        <div class="scanner-hero">
-            <div class="scanner-title">Market Top 10 Scanner</div>
-            <div class="scanner-copy">
-                CoinPilot scans a market-cap universe, filters stablecoins, runs deep indicator checks,
-                and ranks the most promising manual setups it can find.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    run_scan = st.button("Run Scanner", type="primary", width="stretch", key="run_scan")
-    if run_scan:
-        try:
-            if scanner_mode == "Market Top 10":
-                with st.spinner("Scanning the market and ranking the top 10 setups..."):
-                    st.session_state.scan = api_post(
-                        "/scan/market",
-                        {
-                            "account_size": account_size,
-                            "risk_percent": risk_percent,
-                            "universe_limit": universe_limit,
-                            "deep_scan_limit": deep_scan_limit,
-                            "top_n": 10,
-                        },
-                        timeout=180,
-                    )
-            else:
-                coin_ids = [coin.strip().lower() for coin in watchlist_text.split(",") if coin.strip()]
-                if len(coin_ids) > 30:
-                    st.warning("Custom watchlist scans are capped at 30 coins. Scanning the first 30.")
-                    coin_ids = coin_ids[:30]
-                with st.spinner("Scanning your watchlist..."):
-                    st.session_state.scan = api_post(
-                        "/scan",
-                        {
-                            "coin_ids": coin_ids,
-                            "account_size": account_size,
-                            "risk_percent": risk_percent,
-                        },
-                        timeout=90,
-                    )
-        except RuntimeError as error:
-            st.error(str(error))
-
-    if st.session_state.scan:
-        scan = st.session_state.scan
-        results = scan["results"]
-        errors = scan["errors"]
-
-        st.subheader("Scanner Results")
-        scan_col_1, scan_col_2, scan_col_3 = st.columns(3)
-        scan_col_1.metric("Market Universe", scan.get("universe_count", 0))
-        scan_col_2.metric("Deep Scanned", scan.get("scanned_count", 0))
-        scan_col_3.metric("Displayed", len(results))
-
-        if not results:
-            st.warning("No coins could be analyzed. Check the coin IDs and try again.")
-        else:
-            st.subheader("Alerts")
-            show_alerts(scan.get("alerts", []))
-
-            st.subheader("Top 10 Ranked Coins")
-            st.dataframe(scan_table_rows(results), width="stretch", hide_index=True)
-            top_pick = results[0]
-
-            st.subheader("Best Current Candidate")
-            top_col_1, top_col_2, top_col_3, top_col_4 = st.columns(4)
-            top_col_1.metric("Coin", top_pick["coin_id"])
-            top_col_2.metric("Decision", top_pick["decision"])
-            top_col_3.metric("Confidence", f"{top_pick['confidence']}%")
-            top_col_4.metric("Price", f"${top_pick['current_price']:,.2f}")
-            recommendation_badge(top_pick["recommendation"])
-
-            if top_pick["recommendation"] == "Buy Setup":
-                st.success(top_pick["explanation"])
-            elif top_pick["recommendation"] == "Sell / Avoid":
-                st.warning(top_pick["explanation"])
-            else:
-                st.info(top_pick["explanation"])
-
-            with st.expander("Top Result Details", expanded=True):
-                show_analysis_details(top_pick)
-
-        if errors:
-            with st.expander("Coins skipped"):
-                for coin, error in errors.items():
-                    st.write(f"- {coin}: {error}")
-    else:
-        st.info("Enter a watchlist in the sidebar, then run the scanner.")
-
-with agent_tab:
-    st.subheader("AI Agent")
+elif page == "AI Coach":
+    st.subheader("AI Coach")
     st.write(
-        "Ask about your latest scan or single-coin analysis. The agent can suggest what to watch, "
-        "what to avoid, and how to interpret risk. It cannot trade for you."
+        "Ask about your latest scan or coin analysis. The coach can compare setups, explain risk, "
+        "and help you decide what to review next. It cannot trade for you."
     )
 
     context = current_agent_context()
     if context:
         context_col_1, context_col_2 = st.columns(2)
-        context_col_1.metric("Context Items", len(context))
-        context_col_2.metric("Best Current Recommendation", context[0]["recommendation"])
+        context_col_1.metric("Market Context", len(context))
+        context_col_2.metric("Best Signal", context[0]["recommendation"])
     else:
-        st.info("Run the scanner or a single-coin analysis first so the agent has market context.")
+        st.info("Run Market Radar or Coin Deep Dive first so the coach has context.")
 
     for message in st.session_state.agent_messages:
         with st.chat_message(message["role"]):
             st.write(message["content"])
 
-    prompt = st.chat_input("Ask CoinPilot what to buy, sell/avoid, or watch next...")
+    prompt = st.chat_input("Ask what to buy, hold, sell/avoid, or watch next...")
     if prompt:
         st.session_state.agent_messages.append({"role": "user", "content": prompt})
         try:
@@ -731,9 +738,10 @@ with agent_tab:
         st.session_state.agent_messages.append({"role": "assistant", "content": answer})
         st.rerun()
 
-with journal_tab:
-    st.subheader("Recent Trade Journal")
+elif page == "Journal":
+    st.subheader("Trade Journal")
+    st.write("Review recent decisions and learn from the setups CoinPilot accepted or rejected.")
     try:
         st.dataframe(get_journal(), width="stretch", hide_index=True)
     except Exception:
-        st.caption("Start the backend to view saved journal entries.")
+        st.caption("No journal entries yet.")
