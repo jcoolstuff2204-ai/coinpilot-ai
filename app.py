@@ -494,10 +494,10 @@ with st.sidebar:
         key="market_segment",
     )
     segment_settings = {
-        "Large Caps (rank 1-100)": {"rank_start": 1, "min_volume_usd": 50000000},
-        "Mid Caps (rank 101-300)": {"rank_start": 101, "min_volume_usd": 10000000},
-        "Small Caps (rank 301-800)": {"rank_start": 301, "min_volume_usd": 2000000},
-        "High-Risk Small Caps (rank 801-1500)": {"rank_start": 801, "min_volume_usd": 1000000},
+        "Large Caps (rank 1-100)": {"rank_start": 1, "min_volume_usd": 5000000},
+        "Mid Caps (rank 101-300)": {"rank_start": 101, "min_volume_usd": 1000000},
+        "Small Caps (rank 301-800)": {"rank_start": 301, "min_volume_usd": 300000},
+        "High-Risk Small Caps (rank 801-1500)": {"rank_start": 801, "min_volume_usd": 100000},
     }
     selected_segment = segment_settings[market_segment]
     universe_limit = st.slider(
@@ -602,13 +602,14 @@ def render_scan_summary(scan: dict) -> None:
     errors = scan.get("errors", {})
 
     buy_count = len([item for item in results if item["recommendation"] == "Buy Setup"])
+    watch_count = len([item for item in results if item["recommendation"] == "Watch for Entry"])
     hold_count = len([item for item in results if item["recommendation"] == "Hold"])
     avoid_count = len([item for item in results if item["recommendation"] == "Sell / Avoid"])
 
     metric_1, metric_2, metric_3, metric_4 = st.columns(4)
-    metric_1.metric("Buy Setups", buy_count)
-    metric_2.metric("Watch / Hold", hold_count)
-    metric_3.metric("Sell / Avoid", avoid_count)
+    metric_1.metric("Ready Buys", buy_count)
+    metric_2.metric("Watch Entry", watch_count + hold_count)
+    metric_3.metric("Avoid", avoid_count)
     metric_4.metric("Scanned", scan.get("scanned_count", 0))
 
     if not results:
@@ -629,6 +630,8 @@ def render_scan_summary(scan: dict) -> None:
             st.success(top_pick["explanation"])
         elif top_pick["recommendation"] == "Sell / Avoid":
             st.warning(top_pick["explanation"])
+        elif top_pick["recommendation"] == "Watch for Entry":
+            st.info(top_pick["explanation"])
         else:
             st.info(top_pick["explanation"])
     with top_right:

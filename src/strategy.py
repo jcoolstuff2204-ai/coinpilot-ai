@@ -165,7 +165,7 @@ def build_trade_analysis(
     if risk_reward_ratio < 2:
         return AnalysisResponse(
             **no_trade_base,
-            recommendation="Hold",
+            recommendation="Watch for Entry",
             market_bias="Bullish but unsafe",
             trend_status="Bullish",
             confidence=40,
@@ -175,7 +175,7 @@ def build_trade_analysis(
     if not healthy_buy_rsi or overbought_rsi:
         return AnalysisResponse(
             **no_trade_base,
-            recommendation="Hold",
+            recommendation="Watch for Entry",
             market_bias="Bullish but extended",
             trend_status="Bullish",
             confidence=50,
@@ -185,7 +185,7 @@ def build_trade_analysis(
     if not healthy_volume:
         return AnalysisResponse(
             **no_trade_base,
-            recommendation="Hold",
+            recommendation="Watch for Entry",
             market_bias="Bullish but low volume",
             trend_status="Bullish",
             confidence=50,
@@ -195,7 +195,7 @@ def build_trade_analysis(
     if near_resistance:
         return AnalysisResponse(
             **no_trade_base,
-            recommendation="Hold",
+            recommendation="Watch for Entry",
             market_bias="Bullish but near resistance",
             trend_status="Bullish",
             confidence=55,
@@ -205,7 +205,7 @@ def build_trade_analysis(
     if behavior_penalty >= 35:
         return AnalysisResponse(
             **no_trade_base,
-            recommendation="Hold",
+            recommendation="Watch for Entry",
             market_bias="Bullish but emotionally crowded",
             trend_status="Bullish",
             confidence=45,

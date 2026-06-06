@@ -91,7 +91,17 @@ def scan_market(request: MarketScanRequest) -> ScanResponse:
         if item.get("id") not in STABLECOIN_IDS
         and item.get("symbol", "").lower() not in {"usdt", "usdc", "dai"}
         and float(item.get("total_volume") or 0) >= request.min_volume_usd
-    ][: request.deep_scan_limit]
+    ]
+    if len(candidate_ids) < request.deep_scan_limit:
+        relaxed_floor = max(100000.0, request.min_volume_usd * 0.2)
+        candidate_ids = [
+            item["id"]
+            for item in universe
+            if item.get("id") not in STABLECOIN_IDS
+            and item.get("symbol", "").lower() not in {"usdt", "usdc", "dai"}
+            and float(item.get("total_volume") or 0) >= relaxed_floor
+        ]
+    candidate_ids = candidate_ids[: request.deep_scan_limit]
     scan = scan_coins(
         ScanRequest(
             coin_ids=candidate_ids,
@@ -123,13 +133,14 @@ def find_coins(query: str) -> list[CoinSearchResult]:
 
 def _scan_rank(analysis: AnalysisResponse) -> tuple[int, int, float]:
     recommendation_score = {
-        "Buy Setup": 3,
+        "Buy Setup": 4,
+        "Watch for Entry": 3,
         "Hold": 2,
         "Sell / Avoid": 1,
     }.get(analysis.recommendation, 0)
     trade_score = 1 if analysis.decision == "Trade" else 0
     risk_reward = analysis.risk_reward_ratio or 0
-    return (recommendation_score, trade_score, risk_reward)
+    return (recommendation_score, trade_score, analysis.confidence, risk_reward)
 
 
 def _build_alerts(results: list[AnalysisResponse]) -> list[CoinAlert]:
@@ -145,6 +156,19 @@ def _build_alerts(results: list[AnalysisResponse]) -> list[CoinAlert]:
                     message=(
                         f"{item.coin_id.upper()} has a paper buy setup. Review entry {item.entry_zone}, "
                         f"stop-loss ${item.stop_loss:,.2f}, and risk/reward 1:{item.risk_reward_ratio:.2f}."
+                    ),
+                )
+            )
+        elif item.recommendation == "Watch for Entry":
+            alerts.append(
+                CoinAlert(
+                    coin_id=item.coin_id,
+                    severity="watch",
+                    recommendation=item.recommendation,
+                    confidence=item.confidence,
+                    message=(
+                        f"{item.coin_id.upper()} is a watch-for-entry candidate. "
+                        f"{item.reason}"
                     ),
                 )
             )
