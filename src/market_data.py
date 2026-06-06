@@ -80,9 +80,19 @@ UNIVERSE_CACHE_SECONDS = 45 * 60
 MARKET_CACHE_SECONDS = 10 * 60
 STALE_MARKET_SECONDS = 6 * 60 * 60
 
+BINANCE_EXCLUDED_BASES = {
+    "USDT", "USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "EUR", "TRY",
+    "BRL", "AUD", "GBP", "PAXG", "WBTC", "USDE",
+}
+BINANCE_EXCLUDED_KEYWORDS = ("UP", "DOWN", "BULL", "BEAR")
+
 
 def normalize_coin_id(coin_id: str) -> str:
     cleaned = coin_id.strip().lower()
+    if cleaned.startswith("binance:"):
+        return cleaned
+    if cleaned.endswith("usdt") and cleaned.replace("usdt", "").isalnum():
+        return f"binance:{cleaned.upper()}"
     return COIN_ALIASES.get(cleaned, cleaned)
 
 
@@ -171,6 +181,8 @@ def search_coins(query: str, limit: int = 8) -> list[dict]:
 
 def resolve_coin_id(query: str) -> str:
     cleaned = normalize_coin_id(query)
+    if cleaned.startswith("binance:"):
+        return cleaned
     if cleaned != query.strip().lower():
         return cleaned
 
@@ -195,13 +207,70 @@ def resolve_coin_id(query: str) -> str:
 
 
 def fetch_market_universe(limit: int = 50, currency: str = "usd", rank_start: int = 1) -> list[dict]:
-    """Fetch a market-cap ranked coin segment.
+    """Fetch scanner candidates without relying on CoinGecko's rate-limited market list.
 
-    rank_start lets CoinPilot scan beyond major coins:
-    - 1 = large caps
-    - 101 = mid caps
-    - 301+ = smaller, higher-risk coins
+    Binance public 24h tickers are used first because short-term traders care
+    about tradable volume and movement. CoinGecko remains a backup only.
     """
+    try:
+        universe = fetch_binance_universe(limit=limit, rank_start=rank_start)
+        if universe:
+            return universe
+    except RuntimeError:
+        pass
+
+    return fetch_coingecko_market_universe(limit=limit, currency=currency, rank_start=rank_start)
+
+
+def fetch_binance_universe(limit: int = 50, rank_start: int = 1) -> list[dict]:
+    url = f"{settings.binance_base_url}/ticker/24hr"
+    try:
+        tickers = get_json(url, {}, 20, "binance_tickers", 3 * 60, 60 * 60)
+    except HTTPError as error:
+        if error.response is not None and error.response.status_code == 429:
+            raise RuntimeError("Binance ticker rate limit reached.") from error
+        raise RuntimeError("Binance could not return ticker data.") from error
+    except RequestException as error:
+        raise RuntimeError("Could not connect to Binance ticker data.") from error
+
+    candidates: list[dict] = []
+    for ticker in tickers:
+        symbol = ticker.get("symbol", "")
+        if not symbol.endswith("USDT"):
+            continue
+        base = symbol[:-4]
+        if base in BINANCE_EXCLUDED_BASES:
+            continue
+        if any(base.endswith(keyword) for keyword in BINANCE_EXCLUDED_KEYWORDS):
+            continue
+        try:
+            quote_volume = float(ticker.get("quoteVolume") or 0)
+            price_change = float(ticker.get("priceChangePercent") or 0)
+        except (TypeError, ValueError):
+            continue
+        if quote_volume <= 0:
+            continue
+        candidates.append(
+            {
+                "id": f"binance:{symbol}",
+                "symbol": base.lower(),
+                "name": base,
+                "market_cap_rank": 0,
+                "total_volume": quote_volume,
+                "price_change_percentage_24h": price_change,
+            }
+        )
+
+    candidates.sort(key=lambda item: (item["total_volume"], abs(item["price_change_percentage_24h"])), reverse=True)
+    for index, item in enumerate(candidates, start=1):
+        item["market_cap_rank"] = index
+
+    rank_start = max(1, rank_start)
+    rank_end = rank_start + max(1, min(limit, 250)) - 1
+    return [item for item in candidates if rank_start <= item["market_cap_rank"] <= rank_end][:limit]
+
+
+def fetch_coingecko_market_universe(limit: int = 50, currency: str = "usd", rank_start: int = 1) -> list[dict]:
     per_page = 250
     rank_start = max(1, rank_start)
     limit = max(1, min(limit, 250))
@@ -227,7 +296,7 @@ def fetch_market_universe(limit: int = 50, currency: str = "usd", rank_start: in
             )
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
-            raise RuntimeError("CoinGecko market-list rate limit reached. Try again soon; cached data will be reused when available.") from error
+            raise RuntimeError("CoinGecko market-list rate limit reached. Try Binance mode again soon.") from error
         raise RuntimeError("CoinGecko could not return the market list. Please try again shortly.") from error
     except RequestException as error:
         raise RuntimeError("Could not connect to CoinGecko. Check your internet connection and try again.") from error
@@ -245,6 +314,9 @@ def fetch_market_universe(limit: int = 50, currency: str = "usd", rank_start: in
 def fetch_market_data(coin_id: str, days: int = 120, currency: str = "usd") -> pd.DataFrame:
     coin = normalize_coin_id(coin_id)
 
+    if coin.startswith("binance:"):
+        return fetch_binance_symbol_market_data(coin.removeprefix("binance:"), days=days)
+
     if currency.lower() == "usd":
         try:
             return fetch_binance_market_data(coin, days=days)
@@ -260,7 +332,11 @@ def fetch_binance_market_data(coin_id: str, days: int = 120) -> pd.DataFrame:
     symbol = BINANCE_SYMBOLS.get(coin_id)
     if not symbol:
         raise ValueError(f"No Binance candle mapping for '{coin_id}'.")
+    return fetch_binance_symbol_market_data(symbol, days=days)
 
+
+def fetch_binance_symbol_market_data(symbol: str, days: int = 120) -> pd.DataFrame:
+    symbol = symbol.upper()
     url = f"{settings.binance_base_url}/klines"
     params = {"symbol": symbol, "interval": "1d", "limit": max(60, min(days, 1000))}
     try:
