@@ -17,7 +17,8 @@ def fallback_explanation(analysis: AnalysisResponse) -> str:
         f"The 20-period average is ${analysis.ma_20:,.2f}, the 50-period average is "
         f"${analysis.ma_50:,.2f}, and RSI is {analysis.rsi:.1f}. "
         f"Volume is {analysis.volume_vs_average:.1f}% of its 20-period average. "
-        f"{analysis.reason}"
+        f"{analysis.reason} "
+        f"Behavior notes: {' '.join(analysis.key_levels[-3:])}"
     )
 
 
@@ -36,6 +37,8 @@ def explain_analysis(analysis: AnalysisResponse) -> str:
                         "Explain a rule-based crypto trade analysis in beginner-friendly language. "
                         "Do not add new recommendations beyond the structured recommendation. "
                         "Do not claim certainty. Do not suggest exchange actions or automatic trading. "
+                        "Consider investor psychology from the supplied notes: FOMO, panic selling, "
+                        "crowded volume, hesitation near resistance, and whether waiting is wiser. "
                         "Remind the user this is not financial advice."
                     ),
                 },
@@ -84,6 +87,8 @@ def chat_with_agent(message: str, context: list[AnalysisResponse]) -> str:
                         "Use only the provided analysis context. You may suggest Buy Setup, Hold, "
                         "or Sell / Avoid based on the structured data, but you must never imply "
                         "automatic trading, exchange execution, leverage, or guaranteed profit. "
+                        "Also consider investor psychology: FOMO, panic, crowded volume, hesitation "
+                        "near resistance, and whether waiting is the disciplined decision. "
                         "Be concise, practical, and safety-first."
                     ),
                 },

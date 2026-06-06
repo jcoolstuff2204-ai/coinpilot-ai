@@ -1,11 +1,14 @@
 import base64
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 import requests
 import streamlit as st
 
+from src.analysis_service import analyze_coin, ask_agent, find_coins, scan_coins, scan_market
 from src.config import settings
+from src.journal import recent_entries
+from src.models import AnalysisRequest, AssistantRequest, MarketScanRequest, ScanRequest
 
 
 st.set_page_config(page_title="CoinPilot AI", layout="wide")
@@ -203,7 +206,14 @@ COIN_CHOICES = {
 }
 
 
-def image_data_uri(path: str) -> str:
+APP_DIR = Path(__file__).resolve().parent
+BACKEND_NOTICE = (
+    "The live app is running in dashboard-only mode. It can still analyze coins, "
+    "scan the market, save journal entries, and use AI explanations."
+)
+
+
+def image_data_uri(path: str | Path) -> str:
     image_path = Path(path)
     encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     return f"data:image/png;base64,{encoded}"
@@ -222,11 +232,40 @@ def recommendation_badge(recommendation: str) -> None:
     st.markdown(f"<span class='pill {css_class}'>{recommendation}</span>", unsafe_allow_html=True)
 
 
+
+def model_to_dict(value):
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    return value
+
+
+def local_post(path: str, payload: dict) -> dict:
+    if path == "/analyze":
+        return model_to_dict(analyze_coin(AnalysisRequest(**payload)))
+    if path == "/scan":
+        return model_to_dict(scan_coins(ScanRequest(**payload)))
+    if path == "/scan/market":
+        return model_to_dict(scan_market(MarketScanRequest(**payload)))
+    if path == "/agent/chat":
+        return model_to_dict(ask_agent(AssistantRequest(**payload)))
+    raise RuntimeError("This dashboard action is not available.")
+
+
+def local_get(path: str) -> dict | list:
+    parsed_path = urlparse(path)
+    if parsed_path.path == "/coins/search":
+        query = parse_qs(parsed_path.query).get("q", [""])[0]
+        return [coin.model_dump() for coin in find_coins(query)]
+    if parsed_path.path == "/journal":
+        return recent_entries().to_dict(orient="records")
+    raise RuntimeError("This dashboard action is not available.")
+
 def api_post(path: str, payload: dict, timeout: int) -> dict:
     try:
         response = requests.post(f"{settings.backend_url}{path}", json=payload, timeout=timeout)
-    except requests.RequestException as error:
-        raise RuntimeError("Could not reach the CoinPilot backend. Start it with `uvicorn backend.main:app --reload`.") from error
+    except requests.RequestException:
+        st.caption(BACKEND_NOTICE)
+        return local_post(path, payload)
 
     if response.status_code >= 400:
         try:
@@ -245,8 +284,9 @@ def api_post(path: str, payload: dict, timeout: int) -> dict:
 def api_get(path: str, timeout: int) -> dict | list:
     try:
         response = requests.get(f"{settings.backend_url}{path}", timeout=timeout)
-    except requests.RequestException as error:
-        raise RuntimeError("Could not reach the CoinPilot backend. Start it with `uvicorn backend.main:app --reload`.") from error
+    except requests.RequestException:
+        st.caption(BACKEND_NOTICE)
+        return local_get(path)
 
     if response.status_code >= 400:
         try:
@@ -258,9 +298,12 @@ def api_get(path: str, timeout: int) -> dict | list:
 
 
 def get_journal() -> list[dict]:
-    response = requests.get(f"{settings.backend_url}/journal", timeout=10)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = requests.get(f"{settings.backend_url}/journal", timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return recent_entries().to_dict(orient="records")
 
 
 def show_decision_summary(analysis: dict) -> None:
@@ -385,10 +428,7 @@ if "agent_messages" not in st.session_state:
     ]
 
 
-from pathlib import Path
-
-BASE_DIR = Path(__file__).parent
-LOGO_PATH = BASE_DIR / "assets" / "coinpilot_icon.png"
+LOGO_PATH = APP_DIR / "assets" / "coinpilot_icon.png"
 
 logo_uri = image_data_uri(LOGO_PATH)
 

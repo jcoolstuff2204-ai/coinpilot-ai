@@ -19,6 +19,51 @@ SAFETY_RULES = [
 ]
 
 
+
+def psychology_profile(
+    current_price: float,
+    ma_20: float,
+    ma_50: float,
+    rsi: float,
+    volume_vs_average: float,
+    resistance: float,
+) -> tuple[str, list[str], int]:
+    """Estimate FOMO, panic, and crowded behavior from market data."""
+    notes: list[str] = []
+    penalty = 0
+    price_extension = (current_price - ma_20) / current_price
+    trend_extension = abs(ma_20 - ma_50) / current_price
+
+    if rsi >= 75 and volume_vs_average >= 130:
+        notes.append("FOMO risk: RSI is very high while volume is crowded.")
+        penalty += 20
+    elif rsi >= 68:
+        notes.append("Chase risk: buyers may be late after a strong move.")
+        penalty += 10
+
+    if price_extension > 0.06:
+        notes.append("Price is stretched above the 20-period average.")
+        penalty += 10
+
+    if current_price >= resistance * 0.98:
+        notes.append("Price is close to resistance, where buyers often hesitate.")
+        penalty += 10
+
+    if rsi <= 35 and volume_vs_average >= 120:
+        notes.append("Panic risk: selling pressure is elevated.")
+        penalty += 15
+
+    if trend_extension < 0.01:
+        notes.append("Investor conviction looks mixed because the trend is not separated.")
+        penalty += 10
+
+    if not notes:
+        notes.append("Investor behavior looks balanced; no obvious FOMO or panic signal.")
+
+    label = "Calm" if penalty < 10 else "Cautious" if penalty < 25 else "Crowded / Emotional"
+    return label, notes, penalty
+
+
 def build_trade_analysis(
     coin_id: str,
     indicator_data: pd.DataFrame,
@@ -54,6 +99,15 @@ def build_trade_analysis(
         f"20-period average at ${ma_20:,.2f}",
         f"50-period average at ${ma_50:,.2f}",
     ]
+    behavior_label, behavior_notes, behavior_penalty = psychology_profile(
+        current_price=current_price,
+        ma_20=ma_20,
+        ma_50=ma_50,
+        rsi=rsi,
+        volume_vs_average=volume_vs_average,
+        resistance=resistance,
+    )
+    key_levels.extend([f"Psychology: {behavior_label}", *behavior_notes])
 
     no_trade_base = {
         "coin_id": coin_id,
@@ -148,6 +202,16 @@ def build_trade_analysis(
             reason="Price is too close to recent resistance, so the setup does not offer enough room.",
         )
 
+    if behavior_penalty >= 25:
+        return AnalysisResponse(
+            **no_trade_base,
+            recommendation="Hold",
+            market_bias="Bullish but emotionally crowded",
+            trend_status="Bullish",
+            confidence=45,
+            reason="The trend is positive, but investor behavior looks crowded or emotional. Avoid chasing.",
+        )
+
     position_plan = calculate_position_size(
         account_size=account_size,
         risk_percent=risk_percent,
@@ -163,13 +227,18 @@ def build_trade_analysis(
     if current_price < resistance * 0.95:
         confidence += 5
 
+    confidence = max(50, confidence - behavior_penalty)
+
     return AnalysisResponse(
         coin_id=coin_id,
         decision="Trade",
         recommendation="Buy Setup",
         market_bias="Bullish",
         trend_status="Bullish",
-        reason="Trend is clear, RSI is acceptable, and risk/reward passes the safety rules.",
+        reason=(
+            "Trend is clear, RSI is acceptable, risk/reward passes the safety rules, "
+            f"and psychology is {behavior_label.lower()}."
+        ),
         confidence=min(confidence, 90),
         current_price=current_price,
         ma_20=ma_20,
