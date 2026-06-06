@@ -35,14 +35,23 @@ STABLECOIN_IDS = {
 
 def analyze_coin(request: AnalysisRequest) -> AnalysisResponse:
     coin_id = resolve_coin_id(request.coin_id)
+    return analyze_resolved_coin(
+        coin_id=coin_id,
+        account_size=request.account_size,
+        risk_percent=request.risk_percent,
+    )
+
+
+def analyze_resolved_coin(coin_id: str, account_size: float, risk_percent: float) -> AnalysisResponse:
+    """Analyze a known CoinGecko/Binance id without calling search again."""
     market_data = fetch_market_data(coin_id)
     indicator_data = add_indicators(market_data)
 
     analysis = build_trade_analysis(
         coin_id=coin_id,
         indicator_data=indicator_data,
-        account_size=request.account_size,
-        risk_percent=request.risk_percent,
+        account_size=account_size,
+        risk_percent=risk_percent,
     )
 
     explanation = explain_analysis(analysis)
@@ -102,19 +111,28 @@ def scan_market(request: MarketScanRequest) -> ScanResponse:
             and float(item.get("total_volume") or 0) >= relaxed_floor
         ]
     candidate_ids = candidate_ids[: request.deep_scan_limit]
-    scan = scan_coins(
-        ScanRequest(
-            coin_ids=candidate_ids,
-            account_size=request.account_size,
-            risk_percent=request.risk_percent,
-        )
-    )
-    top_results = scan.results[: request.top_n]
+    results: list[AnalysisResponse] = []
+    errors: dict[str, str] = {}
+
+    for coin_id in candidate_ids:
+        try:
+            results.append(
+                analyze_resolved_coin(
+                    coin_id=coin_id,
+                    account_size=request.account_size,
+                    risk_percent=request.risk_percent,
+                )
+            )
+        except Exception as error:
+            errors[coin_id] = str(error)
+
+    results.sort(key=_scan_rank, reverse=True)
+    top_results = results[: request.top_n]
     return ScanResponse(
         results=top_results,
-        errors=scan.errors,
+        errors=errors,
         alerts=_build_alerts(top_results),
-        scanned_count=scan.scanned_count,
+        scanned_count=len(results),
         universe_count=len(universe),
     )
 
