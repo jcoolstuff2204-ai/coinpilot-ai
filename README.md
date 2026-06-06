@@ -46,3 +46,50 @@ streamlit run app.py
 ## Safety Notes
 
 CoinPilot AI is not financial advice. It is a paper-analysis tool only. There is no exchange login, no order routing, no leverage, and no automatic trading.
+
+## Scheduled Notifications
+
+CoinPilot can scan automatically and notify you when a buy candidate or exit/avoid risk appears.
+The scanner is decision-support only. It does not auto-buy, auto-sell, connect to an exchange, or use leverage.
+
+### Local Test
+
+```bash
+cd ~/Desktop/coinpilot_ai
+source venv/bin/activate
+python scripts/auto_scan_alerts.py --once
+```
+
+### GitHub Actions Setup
+
+The workflow `.github/workflows/coinpilot-alerts.yml` runs every 30 minutes.
+
+Add these GitHub repository secrets for Telegram alerts:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+```
+
+Optional email secrets:
+
+```text
+SMTP_HOST
+SMTP_PORT
+SMTP_USERNAME
+SMTP_PASSWORD
+ALERT_EMAIL_TO
+ALERT_EMAIL_FROM
+```
+
+Optional repository variables:
+
+```text
+COINPILOT_ACCOUNT_SIZE=1000
+COINPILOT_RISK_PERCENT=1
+COINPILOT_UNIVERSE_LIMIT=100
+COINPILOT_DEEP_SCAN_LIMIT=20
+COINPILOT_RANK_START=1
+COINPILOT_MIN_VOLUME_USD=300000
+COINPILOT_SEND_EMPTY=false
+```\n

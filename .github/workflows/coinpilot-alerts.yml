@@ -1,0 +1,47 @@
+name: CoinPilot Scheduled Alerts
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run CoinPilot scanner
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          KUCOIN_BASE_URL: https://api.kucoin.com
+          BINANCE_BASE_URL: https://api.binance.com/api/v3
+          BINANCE_GLOBAL_BASE_URL: https://api.binance.com/api/v3
+          COINPILOT_ACCOUNT_SIZE: ${{ vars.COINPILOT_ACCOUNT_SIZE || '1000' }}
+          COINPILOT_RISK_PERCENT: ${{ vars.COINPILOT_RISK_PERCENT || '1' }}
+          COINPILOT_UNIVERSE_LIMIT: ${{ vars.COINPILOT_UNIVERSE_LIMIT || '100' }}
+          COINPILOT_DEEP_SCAN_LIMIT: ${{ vars.COINPILOT_DEEP_SCAN_LIMIT || '20' }}
+          COINPILOT_TOP_N: ${{ vars.COINPILOT_TOP_N || '10' }}
+          COINPILOT_RANK_START: ${{ vars.COINPILOT_RANK_START || '1' }}
+          COINPILOT_MIN_VOLUME_USD: ${{ vars.COINPILOT_MIN_VOLUME_USD || '300000' }}
+          COINPILOT_SEND_EMPTY: ${{ vars.COINPILOT_SEND_EMPTY || 'false' }}
+        run: python scripts/auto_scan_alerts.py --once
