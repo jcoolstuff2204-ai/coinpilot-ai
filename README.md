@@ -93,3 +93,21 @@ COINPILOT_RANK_START=1
 COINPILOT_MIN_VOLUME_USD=300000
 COINPILOT_SEND_EMPTY=false
 ```\n
+
+## Alert Quality Controls
+
+CoinPilot scheduled alerts use cooldown filtering so Telegram does not repeat
+the same signal every 30 minutes.
+
+Optional GitHub repository variables:
+
+```text
+COINPILOT_ALERT_COOLDOWN_HOURS=6
+COINPILOT_MIN_BUY_CONFIDENCE=55
+COINPILOT_MIN_EXIT_CONFIDENCE=65
+COINPILOT_ALERT_WATCH=false
+COINPILOT_SEND_EMPTY=false
+```
+
+Set `COINPILOT_SEND_EMPTY=true` only when testing delivery. Set it back to
+`false` for normal use.\n
