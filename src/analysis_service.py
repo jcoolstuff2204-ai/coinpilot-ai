@@ -97,7 +97,7 @@ def scan_market(request: MarketScanRequest) -> ScanResponse:
     candidate_ids = [
         item["id"]
         for item in universe
-        if item.get("id") not in STABLECOIN_IDS
+        if item.get("id", "").startswith("binance:")
         and item.get("symbol", "").lower() not in {"usdt", "usdc", "dai"}
         and float(item.get("total_volume") or 0) >= request.min_volume_usd
     ]
@@ -106,7 +106,7 @@ def scan_market(request: MarketScanRequest) -> ScanResponse:
         candidate_ids = [
             item["id"]
             for item in universe
-            if item.get("id") not in STABLECOIN_IDS
+            if item.get("id", "").startswith("binance:")
             and item.get("symbol", "").lower() not in {"usdt", "usdc", "dai"}
             and float(item.get("total_volume") or 0) >= relaxed_floor
         ]

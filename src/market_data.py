@@ -207,25 +207,41 @@ def resolve_coin_id(query: str) -> str:
 
 
 def fetch_market_universe(limit: int = 50, currency: str = "usd", rank_start: int = 1) -> list[dict]:
-    """Fetch scanner candidates without relying on CoinGecko's rate-limited market list.
+    """Fetch scanner candidates from exchange-listed pairs.
 
-    Binance public 24h tickers are used first because short-term traders care
-    about tradable volume and movement. CoinGecko remains a backup only.
+    Automatic market scans avoid CoinGecko per-coin history calls because those
+    quickly hit rate limits. CoinGecko stays available for manual single-coin
+    lookup, but Market Radar uses Binance USDT pairs for tradable candidates.
     """
-    try:
-        universe = fetch_binance_universe(limit=limit, rank_start=rank_start)
-        if universe:
-            return universe
-    except RuntimeError:
-        pass
+    return fetch_binance_universe(limit=limit, rank_start=rank_start)
 
-    return fetch_coingecko_market_universe(limit=limit, currency=currency, rank_start=rank_start)
+
+
+def binance_base_urls() -> list[str]:
+    urls = [settings.binance_global_base_url, settings.binance_base_url, "https://api.binance.com/api/v3"]
+    unique: list[str] = []
+    for url in urls:
+        if url and url not in unique:
+            unique.append(url.rstrip("/"))
+    return unique
+
+
+def fetch_binance_json(path: str, params: dict, timeout: int, namespace: str, ttl: int, stale_ttl: int | None = None):
+    last_error: Exception | None = None
+    for base_url in binance_base_urls():
+        try:
+            return get_json(f"{base_url}{path}", params, timeout, namespace, ttl, stale_ttl)
+        except (HTTPError, RequestException, RuntimeError) as error:
+            last_error = error
+            continue
+    if last_error:
+        raise last_error
+    raise RuntimeError("No Binance market data endpoint is configured.")
 
 
 def fetch_binance_universe(limit: int = 50, rank_start: int = 1) -> list[dict]:
-    url = f"{settings.binance_base_url}/ticker/24hr"
     try:
-        tickers = get_json(url, {}, 20, "binance_tickers", 3 * 60, 60 * 60)
+        tickers = fetch_binance_json("/ticker/24hr", {}, 20, "binance_tickers", 3 * 60, 60 * 60)
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
             raise RuntimeError("Binance ticker rate limit reached.") from error
@@ -337,10 +353,9 @@ def fetch_binance_market_data(coin_id: str, days: int = 120) -> pd.DataFrame:
 
 def fetch_binance_symbol_market_data(symbol: str, days: int = 120) -> pd.DataFrame:
     symbol = symbol.upper()
-    url = f"{settings.binance_base_url}/klines"
     params = {"symbol": symbol, "interval": "1d", "limit": max(60, min(days, 1000))}
     try:
-        candles = get_json(url, params, 15, "binance_klines", MARKET_CACHE_SECONDS, STALE_MARKET_SECONDS)
+        candles = fetch_binance_json("/klines", params, 15, "binance_klines", MARKET_CACHE_SECONDS, STALE_MARKET_SECONDS)
     except HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
             raise RuntimeError("Binance market-data rate limit reached.") from error
