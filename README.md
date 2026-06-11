@@ -111,3 +111,10 @@ COINPILOT_SEND_EMPTY=false
 
 Set `COINPILOT_SEND_EMPTY=true` only when testing delivery. Set it back to
 `false` for normal use.\n
+
+## Paper Trade Tracking
+
+CoinPilot can save a valid `Trade` decision as a simulated paper position.
+Use the Paper Trades page to refresh positions, review stop/target progress,
+and close positions manually. This is learning and journaling only; no real
+orders are placed.
