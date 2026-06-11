@@ -8,6 +8,7 @@ import streamlit as st
 from src.analysis_service import analyze_coin, ask_agent, find_coins, scan_coins, scan_market
 from src.config import settings
 from src.journal import recent_entries
+from src.paper_trading import close_paper_trade, list_paper_positions, open_paper_trade, refresh_paper_positions
 from src.models import AnalysisRequest, AssistantRequest, MarketScanRequest, ScanRequest
 
 
@@ -358,7 +359,7 @@ def show_trade_plan(analysis: dict) -> None:
 
 
 def show_analysis_details(analysis: dict) -> None:
-    market_tab, plan_tab, rules_tab = st.tabs(["Market", "Plan", "Safety"])
+    market_tab, plan_tab, agent_tab, rules_tab = st.tabs(["Market", "Plan", "Agent Evidence", "Safety"])
 
     with market_tab:
         show_market_metrics(analysis)
@@ -368,10 +369,87 @@ def show_analysis_details(analysis: dict) -> None:
 
     with plan_tab:
         show_trade_plan(analysis)
+        maybe_track_paper_trade(analysis, "track_deep_dive_paper_trade")
+
+    with agent_tab:
+        score_col_1, score_col_2, score_col_3 = st.columns(3)
+        score_col_1.metric("Opportunity", f"{analysis.get('opportunity_score', 0)}/100")
+        score_col_2.metric("Risk", f"{analysis.get('risk_score', 0)}/100")
+        score_col_3.metric("Manipulation Risk", f"{analysis.get('manipulation_risk_score', 0)}/100")
+        st.write(f"**Behavioral state:** {analysis.get('behavioral_state', 'Unknown')}")
+        st.write(f"**Counter-thesis:** {analysis.get('counter_thesis', 'Not available')}")
+        st.write(f"**Exit warning:** {analysis.get('exit_warning', 'Not available')}")
+        st.write("**Signal components**")
+        st.dataframe(analysis.get("components", []), width="stretch", hide_index=True)
+        st.write("**Manual action checklist**")
+        for item in analysis.get("action_checklist", []):
+            st.write(f"- {item}")
 
     with rules_tab:
         for rule in analysis["safety_rules"]:
             st.write(f"- {rule}")
+
+
+def maybe_track_paper_trade(analysis: dict, key: str) -> None:
+    if analysis.get("decision") != "Trade":
+        return
+    if st.button("Track as Paper Trade", width="stretch", key=key):
+        try:
+            position_id = open_paper_trade(analysis)
+            st.success(f"Paper trade #{position_id} saved. No real order was placed.")
+        except Exception as error:
+            st.error(str(error))
+
+
+def render_paper_trades() -> None:
+    st.markdown(
+        """
+        <div class="scanner-hero">
+            <div class="scanner-title">Paper Trades</div>
+            <div class="scanner-copy">
+                Track manual paper positions created from CoinPilot signals. This is simulated tracking only;
+                CoinPilot never submits exchange orders.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    refresh_col, note_col = st.columns([0.65, 0.35])
+    with refresh_col:
+        if st.button("Refresh Paper Positions", type="primary", width="stretch", key="refresh_paper_positions"):
+            updates = refresh_paper_positions()
+            if updates:
+                for message in updates.values():
+                    st.write(f"- {message}")
+            else:
+                st.info("No active paper positions to refresh.")
+    with note_col:
+        render_signal_card("Mode", "Paper Only", "No real trading")
+
+    positions = list_paper_positions()
+    if positions.empty:
+        st.info("No paper trades yet. Save a Trade decision from Market Radar or Coin Deep Dive.")
+        return
+
+    st.dataframe(positions, width="stretch", hide_index=True)
+
+    active_positions = positions[positions["status"] == "Active"]
+    if not active_positions.empty:
+        st.subheader("Close Manually")
+        selected_id = st.selectbox(
+            "Paper position",
+            [int(value) for value in active_positions["id"].tolist()],
+            key="paper_position_to_close",
+        )
+        close_reason = st.text_input("Close reason", value="Closed manually after review", key="paper_close_reason")
+        if st.button("Close Selected Paper Trade", width="stretch", key="close_paper_trade"):
+            try:
+                close_paper_trade(int(selected_id), close_reason)
+                st.success("Paper trade closed. No real order was placed.")
+                st.rerun()
+            except Exception as error:
+                st.error(str(error))
 
 
 def scan_table_rows(results: list[dict]) -> list[dict]:
@@ -383,6 +461,9 @@ def scan_table_rows(results: list[dict]) -> list[dict]:
                 "recommendation": item["recommendation"],
                 "decision": item["decision"],
                 "confidence": item["confidence"],
+                "opportunity": item.get("opportunity_score", 0),
+                "risk": item.get("risk_score", 0),
+                "behavior": item.get("behavioral_state", ""),
                 "price": round(item["current_price"], 6),
                 "rsi": round(item["rsi"], 1),
                 "volume_vs_20_avg": round(item["volume_vs_average"], 1),
@@ -475,7 +556,7 @@ with st.sidebar:
     st.divider()
     page = st.radio(
         "Workspace",
-        ["Market Radar", "Coin Deep Dive", "AI Coach", "Journal"],
+        ["Market Radar", "Coin Deep Dive", "AI Coach", "Paper Trades", "Journal"],
         key="workspace",
     )
 
@@ -637,6 +718,8 @@ def render_scan_summary(scan: dict) -> None:
     with top_right:
         st.metric("Decision", top_pick["decision"])
         st.metric("Confidence", f"{top_pick['confidence']}%")
+        st.metric("Opportunity", f"{top_pick.get('opportunity_score', 0)}/100")
+        st.metric("Risk", f"{top_pick.get('risk_score', 0)}/100")
         st.metric("Price", f"${top_pick['current_price']:,.2f}")
 
     if top_pick["decision"] == "Trade":
@@ -647,6 +730,18 @@ def render_scan_summary(scan: dict) -> None:
         rr_col.metric("Risk / Reward", f"1:{top_pick['risk_reward_ratio']:.2f}")
     else:
         st.info(f"No trade plan shown. Reason: {top_pick['reason']}")
+
+    maybe_track_paper_trade(top_pick, "track_top_pick_paper_trade")
+
+    st.markdown("#### Agent Evidence")
+    st.write(f"**Behavioral state:** {top_pick.get('behavioral_state', 'Unknown')}")
+    st.write(f"**Counter-thesis:** {top_pick.get('counter_thesis', 'Not available')}")
+    st.write(f"**Exit warning:** {top_pick.get('exit_warning', 'Not available')}")
+    checklist = top_pick.get("action_checklist", [])
+    if checklist:
+        st.write("**Manual checklist**")
+        for item in checklist:
+            st.write(f"- {item}")
 
     st.subheader("Top 10 Short-Term Watchlist")
     st.dataframe(scan_table_rows(results), width="stretch", hide_index=True)
@@ -756,6 +851,9 @@ elif page == "AI Coach":
             answer = str(error)
         st.session_state.agent_messages.append({"role": "assistant", "content": answer})
         st.rerun()
+
+elif page == "Paper Trades":
+    render_paper_trades()
 
 elif page == "Journal":
     st.subheader("Trade Journal")
