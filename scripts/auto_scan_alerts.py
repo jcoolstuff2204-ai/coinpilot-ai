@@ -90,7 +90,9 @@ def price_text(value) -> str:
 def signal_line(index: int, item: dict) -> str:
     return (
         f"{index}. {item['coin_id'].upper()} | {item['recommendation']} | "
-        f"{item['confidence']}% | RSI {item['rsi']:.1f} | Vol {item['volume_vs_average']:.0f}% | RR {rr_text(item)}"
+        f"{item['confidence']}% | Opp {item.get('opportunity_score', 0)}/100 | "
+        f"Risk {item.get('risk_score', 0)}/100 | RSI {item['rsi']:.1f} | "
+        f"Vol {item['volume_vs_average']:.0f}% | RR {rr_text(item)}"
     )
 
 
@@ -129,6 +131,8 @@ def build_message(scan: dict, new_buy: list[dict], new_watch: list[dict], new_ex
             lines.append(f"   Entry: {item.get('entry_zone', 'Manual review')}")
             lines.append(f"   Stop: {price_text(item.get('stop_loss'))} | Target: {price_text(item.get('take_profit'))}")
             lines.append(f"   Why: {item['reason']}")
+            lines.append(f"   Counter-thesis: {item.get('counter_thesis', 'Review invalidation manually.')}")
+            lines.append(f"   Exit warning: {item.get('exit_warning', 'Keep stop visible.')}")
         lines.append("")
 
     if new_watch:
